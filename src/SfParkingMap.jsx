@@ -1,10 +1,18 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, TileLayer, GeoJSON, useMapEvents } from "react-leaflet";
+import TimeFilterControl from './TimeFilterControl';
+import { isActiveAt, intersectsRange } from './time-parser';
 import "leaflet/dist/leaflet.css";
-
 
 const DATASET_ID = "hi6h-neyh"; // Use the source dataset ID
 const GEOM_FIELD = "shape";
+
+// Helper to format a date for datetime-local input
+const toLocalISOString = (date) => {
+    const tzoffset = date.getTimezoneOffset() * 60000; // offset in milliseconds
+    const localISOTime = new Date(date.getTime() - tzoffset).toISOString().slice(0, 16);
+    return localISOTime;
+};
 
 // Debounce Hook
 function useDebouncedCallback(cb, delay = 300) {
@@ -29,14 +37,23 @@ function classifyRegulation(props) {
     return "Unknown";
 }
 
-function styleForClass(cls) {
-    switch (cls) {
-        case "NoParking": return { color: "#d32f2f", weight: 4 };
-        case "TimeLimit": return { color: "#fb8c00", weight: 3 };
-        case "RPP": return { color: "#1e88e5", weight: 3 };
-        case "PermitOnly": return { color: "#8e24aa", weight: 3 };
-        default: return { color: "#9e9e9e", dashArray: "4 4", weight: 2 };
+function styleForFeature(feature, showInactiveDim) {
+    const props = feature.properties;
+    const cls = classifyRegulation(props);
+    const baseStyle = (() => {
+        switch (cls) {
+            case "NoParking": return { color: "#d73027", weight: 4 }; // Red
+            case "TimeLimit": return { color: "#fc8d59", weight: 3 }; // Orange
+            case "RPP": return { color: "#4575b4", weight: 3 };       // Blue
+            case "PermitOnly": return { color: "#7b3294", weight: 3 };// Purple
+            default: return { color: "#999999", weight: 2 };          // Grey
+        }
+    })();
+
+    if (showInactiveDim && !props._isActive) {
+        return { ...baseStyle, opacity: 0.3, dashArray: '5, 5' };
     }
+    return baseStyle;
 }
 
 // Legend Component
@@ -80,7 +97,6 @@ async function fetchGeojson({ bounds, limit = 5000, token }) {
     const base = `https://data.sfgov.org/resource/${DATASET_ID}.geojson`;
     const params = new URLSearchParams();
 
-    // Use Socrata's within_box for server-side spatial filtering
     if (bounds) {
         const { _northEast, _southWest } = bounds;
         const whereClause = `within_box(${GEOM_FIELD}, ${_northEast.lat}, ${_southWest.lng}, ${_southWest.lat}, ${_northEast.lng})`;
@@ -88,18 +104,14 @@ async function fetchGeojson({ bounds, limit = 5000, token }) {
     }
 
     params.set("$limit", String(limit || 5000));
-
     const url = `${base}?${params.toString()}`;
     console.log("[SODA] GET", url);
 
-    const res = await fetch(url, {
-        headers: token ? { "X-App-Token": token } : {},
-    });
+    const res = await fetch(url, { headers: token ? { "X-App-Token": token } : {} });
 
     if (!res.ok) {
         const text = await res.text();
         console.error("[SODA] Error", res.status, text);
-        // If the query fails, it might be too large.
         if (res.status === 400 && text.includes("Query is too complex")) {
              throw new Error("Area too large or query too complex. Zoom in.");
         }
@@ -113,10 +125,12 @@ export default function SfParkingMap() {
     const [geojson, setGeojson] = useState(null);
     const [status, setStatus] = useState("Idle");
     const [filters, setFilters] = useState({
-        showNoParking: true,
-        showTimeLimit: true,
-        showRPP: true,
-        showPermit: true,
+        mode: 'now',
+        atTime: toLocalISOString(new Date()),
+        rangeStart: toLocalISOString(new Date()),
+        rangeEnd: toLocalISOString(new Date(Date.now() + 3600 * 1000)),
+        respectRPP: false,
+        showInactiveDim: true,
         token: "",
         limit: 2000,
     });
@@ -124,11 +138,7 @@ export default function SfParkingMap() {
     const debouncedLoad = useDebouncedCallback(async ({ bounds }) => {
         try {
             setStatus("Loading...");
-            const data = await fetchGeojson({
-                bounds,
-                limit: filters.limit,
-                token: filters.token,
-            });
+            const data = await fetchGeojson({ bounds, limit: filters.limit, token: filters.token });
             setGeojson(data);
             setStatus(`Loaded (${data.features?.length || 0})`);
         } catch (err) {
@@ -137,57 +147,72 @@ export default function SfParkingMap() {
         }
     }, 300);
 
-    const filtered = useMemo(() => {
+    const processedGeojson = useMemo(() => {
         if (!geojson) return null;
-        return {
-            type: "FeatureCollection",
-            features: geojson.features.filter((f) => {
-                const cls = classifyRegulation(f.properties);
-                if (cls === "NoParking" && !filters.showNoParking) return false;
-                if (cls === "TimeLimit" && !filters.showTimeLimit) return false;
-                if (cls === "RPP" && !filters.showRPP) return false;
-                if (cls === "PermitOnly" && !filters.showPermit) return false;
-                return true;
-            }),
-        };
+
+        const featuresWithStatus = geojson.features.map(f => {
+            let isActive;
+            const props = f.properties;
+
+            if (filters.mode === 'now') {
+                isActive = true; // In 'Now' mode, show everything as active
+            } else if (filters.mode === 'at') {
+                isActive = isActiveAt(props, new Date(filters.atTime));
+            } else { // 'range'
+                isActive = intersectsRange(props, new Date(filters.rangeStart), new Date(filters.rangeEnd));
+            }
+
+            // Handle RPP permit assumption
+            const cls = classifyRegulation(props);
+            if (filters.respectRPP && cls === 'RPP') {
+                 const exceptions = (props.exceptions || '').toLowerCase();
+                 if (exceptions.includes('rpp exempt')) {
+                    isActive = false; // User can park here
+                 }
+            }
+
+            return { ...f, properties: { ...props, _isActive: isActive } };
+        });
+
+        const filteredFeatures = filters.showInactiveDim
+            ? featuresWithStatus
+            : featuresWithStatus.filter(f => f.properties._isActive);
+
+        return { type: "FeatureCollection", features: filteredFeatures };
     }, [geojson, filters]);
 
     return (
         <div style={{ width: "100vw", height: "100vh", position: "relative" }}>
             <MapContainer center={[37.7749, -122.4194]} zoom={15} className="map" style={{ height: "100%", width: "100%" }}>
                 <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-                {filtered && (
+                {processedGeojson && (
                     <GeoJSON
-                        data={filtered}
-                        style={(f) => styleForClass(classifyRegulation(f.properties))}
+                        key={JSON.stringify(filters)} // Re-render when filters change
+                        data={processedGeojson}
+                        style={(f) => styleForFeature(f, filters.showInactiveDim)}
                         onEachFeature={(f, layer) => {
                             const p = f.properties || {};
+                            const statusText = p._isActive ? 'ACTIVE' : 'INACTIVE';
                             layer.bindPopup(`
-                <b>${classifyRegulation(p)}</b><br/>
-                ${p.regulation || "(no text)"}<br/>
-                Days: ${p.days || ""}  Hours: ${p.hours || ""}<br/>
-                Limit: ${p.hrlimit || ""}<br/>
-                RPP: ${[p.rpparea1, p.rpparea2, p.rpparea3].filter(Boolean).join(", ") || p.rpp_sym || p.sym_rpp2 || ""}<br/>
-                Detail: ${p.regdetails || ""}<br/>
-                Exceptions: ${p.exceptions || ""}<br/>
-                </div>
-              `);
+                                <b>${classifyRegulation(p)} - ${statusText}</b><br/>
+                                ${p.regulation || "(no text)"}<br/>
+                                <hr/>
+                                Days: ${p.days || ""}<br/>
+                                Hours: ${p.hours || ""}<br/>
+                                Limit: ${p.hrlimit || ""}<br/>
+                                RPP: ${[p.rpparea1, p.rpparea2, p.rpparea3].filter(Boolean).join(", ") || p.rpp_sym || p.sym_rpp2 || ""}<br/>
+                                Detail: ${p.regdetails || ""}<br/>
+                                Exceptions: ${p.exceptions || ""}<br/>
+                            `);
                         }}
                     />
                 )}
                 <ViewportListener onMove={(b) => debouncedLoad({ bounds: b })} />
             </MapContainer>
 
-            {/* Legend and Status Display */}
+            <TimeFilterControl filters={filters} setFilters={setFilters} status={status} />
+
             <Legend />
-            <div style={{
-                position: "absolute", right: 12, top: 12,
-                background: "rgba(255,255,255,0.9)",
-                padding: "6px 10px", borderRadius: 8, fontSize: 12,
-                boxShadow: "0 2px 5px rgba(0,0,0,0.2)"
-            }}>
-                {status}
-            </div>
         </div>
     );
 }
