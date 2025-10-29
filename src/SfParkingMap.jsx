@@ -1,8 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { MapContainer, TileLayer, GeoJSON, useMapEvents } from "react-leaflet";
 import TimeFilterControl from './TimeFilterControl';
-import { isActiveAt, intersectsRange } from './time-parser';
+import { isActiveAt, intersectsRange, calculateCoverage } from './time-parser';
 import "leaflet/dist/leaflet.css";
+const MAPBOX_TOKEN = import.meta.env.VITE_MAPBOX_TOKEN;
 
 const DATASET_ID = "hi6h-neyh"; // Use the source dataset ID
 const GEOM_FIELD = "shape";
@@ -37,9 +38,30 @@ function classifyRegulation(props) {
     return "Unknown";
 }
 
-function styleForFeature(feature, showInactiveDim) {
+function styleForFeature(feature, showInactiveDim, isRangeMode) {
     const props = feature.properties;
     const cls = classifyRegulation(props);
+
+    // In range mode, use coverage-based coloring
+    if (isRangeMode && props._coverage !== undefined) {
+        const coverage = props._coverage;
+        let color;
+
+        if (coverage >= 1.0) {
+            // Full coverage: Blue (can park here the entire time)
+            color = "#2196F3";
+        } else if (coverage > 0) {
+            // Partial coverage: Yellow (can only park for part of the time)
+            color = "#FFC107";
+        } else {
+            // No coverage: Gray (can't park here at all)
+            color = "#9E9E9E";
+        }
+
+        return { color, weight: 3, opacity: 1.0 };
+    }
+
+    // Original classification-based styling for non-range modes
     const baseStyle = (() => {
         switch (cls) {
             case "NoParking": return { color: "#d73027", weight: 4 }; // Red
@@ -57,23 +79,42 @@ function styleForFeature(feature, showInactiveDim) {
 }
 
 // Legend Component
-function Legend() {
-    const items = [
+function Legend({ isRangeMode }) {
+    const rangeItems = [
+        ["#2196F3", "Can park entire time"],
+        ["#FFC107", "Can park part of time"],
+        ["#9E9E9E", "Cannot park"],
+    ];
+    const classificationItems = [
         ["#d32f2f", "No Parking / Tow-away"],
         ["#fb8c00", "Time Limit"],
         ["#1e88e5", "RPP"],
         ["#8e24aa", "Permit Only"],
         ["#9e9e9e", "Unknown/Other"],
     ];
+
     return (
         <div style={{
             position: "absolute", left: 12, bottom: 12,
             background: "rgba(255,255,255,0.9)", borderRadius: 12,
             padding: 10, fontSize: 12, boxShadow: "0 2px 5px rgba(0,0,0,0.2)"
         }}>
-            <b>Legend</b>
+            {isRangeMode && (
+                <>
+                    <b>Range Mode Legend</b>
+                    <ul style={{ listStyle: "none", padding: 0, margin: "6px 0 12px 0" }}>
+                        {rangeItems.map(([color, label]) => (
+                            <li key={label} style={{ display: "flex", alignItems: "center", marginBottom: 3 }}>
+                                <span style={{ width: 14, height: 6, background: color, marginRight: 6 }}></span>
+                                {label}
+                            </li>
+                        ))}
+                    </ul>
+                </>
+            )}
+            <b>Regulation Types</b>
             <ul style={{ listStyle: "none", padding: 0, margin: "6px 0 0 0" }}>
-                {items.map(([color, label]) => (
+                {classificationItems.map(([color, label]) => (
                     <li key={label} style={{ display: "flex", alignItems: "center", marginBottom: 3 }}>
                         <span style={{ width: 14, height: 6, background: color, marginRight: 6 }}></span>
                         {label}
@@ -113,7 +154,7 @@ async function fetchGeojson({ bounds, limit = 5000, token }) {
         const text = await res.text();
         console.error("[SODA] Error", res.status, text);
         if (res.status === 400 && text.includes("Query is too complex")) {
-             throw new Error("Area too large or query too complex. Zoom in.");
+            throw new Error("Area too large or query too complex. Zoom in.");
         }
         throw new Error(`API Error ${res.status}: ${text}`);
     }
@@ -152,6 +193,7 @@ export default function SfParkingMap() {
 
         const featuresWithStatus = geojson.features.map(f => {
             let isActive;
+            let coverage;
             const props = f.properties;
 
             if (filters.mode === 'now') {
@@ -160,18 +202,20 @@ export default function SfParkingMap() {
                 isActive = isActiveAt(props, new Date(filters.atTime));
             } else { // 'range'
                 isActive = intersectsRange(props, new Date(filters.rangeStart), new Date(filters.rangeEnd));
+                // Calculate coverage for range mode
+                coverage = calculateCoverage(props, new Date(filters.rangeStart), new Date(filters.rangeEnd));
             }
 
             // Handle RPP permit assumption
             const cls = classifyRegulation(props);
             if (filters.respectRPP && cls === 'RPP') {
-                 const exceptions = (props.exceptions || '').toLowerCase();
-                 if (exceptions.includes('rpp exempt')) {
+                const exceptions = (props.exceptions || '').toLowerCase();
+                if (exceptions.includes('rpp exempt')) {
                     isActive = false; // User can park here
-                 }
+                }
             }
 
-            return { ...f, properties: { ...props, _isActive: isActive } };
+            return { ...f, properties: { ...props, _isActive: isActive, _coverage: coverage } };
         });
 
         const filteredFeatures = filters.showInactiveDim
@@ -184,18 +228,29 @@ export default function SfParkingMap() {
     return (
         <div style={{ width: "100vw", height: "100vh", position: "relative" }}>
             <MapContainer center={[37.7749, -122.4194]} zoom={15} className="map" style={{ height: "100%", width: "100%" }}>
-                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                <TileLayer
+                    url={`https://api.mapbox.com/styles/v1/mapbox/light-v11/tiles/{z}/{x}/{y}?access_token=${MAPBOX_TOKEN}`}
+                    attribution='© <a href="https://www.mapbox.com/about/maps/">Mapbox</a> © <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                    tileSize={512}
+                    zoomOffset={-1}
+                />
+                {/* <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" /> */}
+
                 {processedGeojson && (
                     <GeoJSON
                         key={JSON.stringify(filters)} // Re-render when filters change
                         data={processedGeojson}
-                        style={(f) => styleForFeature(f, filters.showInactiveDim)}
+                        style={(f) => styleForFeature(f, filters.showInactiveDim, filters.mode === 'range')}
                         onEachFeature={(f, layer) => {
                             const p = f.properties || {};
                             const statusText = p._isActive ? 'ACTIVE' : 'INACTIVE';
+                            const coverageText = p._coverage !== undefined
+                                ? `<br/>Coverage: ${(p._coverage * 100).toFixed(0)}%`
+                                : '';
                             layer.bindPopup(`
                                 <b>${classifyRegulation(p)} - ${statusText}</b><br/>
                                 ${p.regulation || "(no text)"}<br/>
+                                ${coverageText}
                                 <hr/>
                                 Days: ${p.days || ""}<br/>
                                 Hours: ${p.hours || ""}<br/>
@@ -212,7 +267,7 @@ export default function SfParkingMap() {
 
             <TimeFilterControl filters={filters} setFilters={setFilters} status={status} />
 
-            <Legend />
+            <Legend isRangeMode={filters.mode === 'range'} />
         </div>
     );
 }
