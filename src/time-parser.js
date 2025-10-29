@@ -169,3 +169,110 @@ export function intersectsRange(props, start, end) {
         return Math.max(ruleRange.start, userRange.start) < Math.min(ruleRange.end, userRange.end);
     }
 }
+
+/**
+ * Calculates what percentage of the user's time range allows parking.
+ * Takes into account time limits (e.g., 2hr limit means you can park for up to 2 hours).
+ * Returns 1.0 if you can park for the entire requested duration.
+ * Returns partial value if you can only park for part of the time.
+ * Returns 0 if you cannot park at all.
+ * @param {object} props The feature properties.
+ * @param {Date} start The start of the user's range.
+ * @param {Date} end The end of the user's range.
+ * @returns {number} Parking availability ratio from 0 to 1.
+ */
+export function calculateCoverage(props, start, end) {
+    const activeDays = parseDays(props.days);
+    const regTime = parseTimeRange(props.hours);
+    const dayOfWeek = start.getDay();
+    const regulation = (props.regulation || '').toLowerCase();
+
+    const userStartMin = start.getHours() * 60 + start.getMinutes();
+    const userEndMin = end.getHours() * 60 + end.getMinutes();
+    const userDurationMin = userEndMin - userStartMin;
+
+    if (userDurationMin <= 0) return 0;
+
+    // Check if regulation applies today
+    const regulationAppliesToday = !activeDays || activeDays.has(dayOfWeek);
+
+    // If regulation doesn't apply today, entire range is free
+    if (!regulationAppliesToday) {
+        return 1.0;
+    }
+
+    // Determine if this is a "no parking" regulation
+    const isNoParking = /no\s*parking|tow-?away/.test(regulation);
+
+    // Calculate overlap between user's range and regulation time
+    let overlapMinutes = 0;
+
+    if (!regTime) {
+        // No time restriction means regulation applies 24/7
+        overlapMinutes = userDurationMin;
+    } else if (regTime.startMin === 0 && regTime.endMin === 1440) {
+        // ANYTIME or 24HR
+        overlapMinutes = userDurationMin;
+    } else if (regTime.endMin <= regTime.startMin) {
+        // Regulation is overnight
+        const ruleRange1 = { start: regTime.startMin, end: 1440 };
+        const ruleRange2 = { start: 0, end: regTime.endMin };
+        const userRange = { start: userStartMin, end: userEndMin };
+
+        const overlap1Start = Math.max(ruleRange1.start, userRange.start);
+        const overlap1End = Math.min(ruleRange1.end, userRange.end);
+        if (overlap1Start < overlap1End) {
+            overlapMinutes += overlap1End - overlap1Start;
+        }
+
+        const overlap2Start = Math.max(ruleRange2.start, userRange.start);
+        const overlap2End = Math.min(ruleRange2.end, userRange.end);
+        if (overlap2Start < overlap2End) {
+            overlapMinutes += overlap2End - overlap2Start;
+        }
+    } else {
+        // Regulation is same-day
+        const overlapStart = Math.max(regTime.startMin, userStartMin);
+        const overlapEnd = Math.min(regTime.endMin, userEndMin);
+        if (overlapStart < overlapEnd) {
+            overlapMinutes = overlapEnd - overlapStart;
+        }
+    }
+
+    // If no overlap with regulation hours, you can park freely
+    if (overlapMinutes === 0) {
+        return 1.0;
+    }
+
+    // If "No Parking" regulation overlaps, you cannot park during that time
+    if (isNoParking) {
+        const freeMinutes = userDurationMin - overlapMinutes;
+        return freeMinutes / userDurationMin;
+    }
+
+    // Check for time limit (e.g., "2" means 2 hour limit)
+    const timeLimit = props.hrlimit || props.hours;
+    let timeLimitMinutes = null;
+
+    if (timeLimit && typeof timeLimit === 'string') {
+        const limitMatch = timeLimit.match(/(\d+)/);
+        if (limitMatch) {
+            timeLimitMinutes = parseInt(limitMatch[1], 10) * 60;
+        }
+    } else if (typeof timeLimit === 'number') {
+        timeLimitMinutes = timeLimit * 60;
+    }
+
+    // If there's a time limit and user duration exceeds it during regulated hours
+    if (timeLimitMinutes && overlapMinutes > 0) {
+        // You can park for up to timeLimitMinutes within the regulated period
+        const allowedMinutes = Math.min(timeLimitMinutes, overlapMinutes);
+        const freeMinutes = (userDurationMin - overlapMinutes) + allowedMinutes;
+        return Math.min(1.0, freeMinutes / userDurationMin);
+    }
+
+    // Default: if there's a regulation but no specific restriction type identified,
+    // assume you can park during non-regulated hours only
+    const freeMinutes = userDurationMin - overlapMinutes;
+    return freeMinutes / userDurationMin;
+}
