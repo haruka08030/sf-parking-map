@@ -89,7 +89,6 @@ sf-parking-map/
 │   ├── SfParkingMap.jsx      # Main map component
 │   ├── TimeFilterControl.jsx # Time filter UI
 │   └── time-parser.js        # Time/day parsing logic
-├── .env.example              # Environment template
 └── package.json              # Dependencies
 ```
 
