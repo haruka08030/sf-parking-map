@@ -252,12 +252,11 @@ export default function SfParkingMap() {
     const [geojson, setGeojson] = useState(null);
     const [status, setStatus] = useState("Idle");
     const [filters, setFilters] = useState({
-        simulationEnabled: true, // Changed: Start with simulation enabled (At mode by default)
-        simulationMode: 'at', // 'at' or 'range'
+        simulationEnabled: true,
+        simulationMode: 'at',
         atTime: toLocalISOString(new Date()),
         rangeStart: toLocalISOString(new Date()),
         rangeEnd: toLocalISOString(new Date(Date.now() + 3600 * 1000)),
-        respectRPP: false,
         showInactiveDim: true,
         token: "",
         limit: 2000,
@@ -305,17 +304,13 @@ export default function SfParkingMap() {
             let coverage;
             const props = f.properties;
 
-            // Determine current mode
             const currentMode = filters.simulationEnabled ? filters.simulationMode : 'now';
 
             if (currentMode === 'now') {
-                // Now mode: show everything as active (no time filtering)
                 isActive = true;
             } else if (currentMode === 'at') {
-                // At mode: check if regulation is active at specific time
                 isActive = isActiveAt(props, new Date(filters.atTime));
             } else if (currentMode === 'range') {
-                // Range mode: check intersection and calculate coverage
                 isActive = intersectsRange(props, new Date(filters.rangeStart), new Date(filters.rangeEnd));
                 coverage = calculateCoverage(props, new Date(filters.rangeStart), new Date(filters.rangeEnd));
             }
@@ -339,11 +334,9 @@ export default function SfParkingMap() {
                     tileSize={512}
                     zoomOffset={-1}
                 />
-                {/* <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" /> */}
-
                 {processedGeojson && (
                     <GeoJSON
-                        key={JSON.stringify(filters)} // Re-render when filters change
+                        key={JSON.stringify(filters)}
                         data={processedGeojson}
                         style={(f) => {
                             const currentMode = filters.simulationEnabled ? filters.simulationMode : 'now';

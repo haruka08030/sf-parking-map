@@ -77,15 +77,8 @@ const inputStyle = {
     fontSize: '13px',
 };
 
-const checkboxGroupStyle = {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '6px',
-    padding: '4px 0',
-};
-
 export default function TimeFilterControl({ filters, setFilters, status }) {
-    const { simulationEnabled, simulationMode, atTime, rangeStart, rangeEnd, respectRPP, showInactiveDim } = filters;
+    const { simulationEnabled, simulationMode, atTime, rangeStart, rangeEnd } = filters;
 
     const handleFilterChange = (key, value) => {
         setFilters(prev => ({ ...prev, [key]: value }));
@@ -97,7 +90,6 @@ export default function TimeFilterControl({ filters, setFilters, status }) {
 
     return (
         <div style={controlBoxStyle}>
-            {/* Simulation Toggle */}
             <div style={toggleContainerStyle}>
                 <span style={toggleLabelStyle}>Show Rules</span>
                 <label style={toggleSwitchStyle}>
@@ -130,10 +122,8 @@ export default function TimeFilterControl({ filters, setFilters, status }) {
                 </label>
             </div>
 
-            {/* Time Selection Controls - Only show when simulationEnabled is true */}
             {simulationEnabled && (
                 <>
-                    {/* Mode Selector */}
                     <div style={segmentControlStyle}>
                         <button
                             style={segmentButtonStyle(simulationMode === 'at')}
@@ -149,7 +139,6 @@ export default function TimeFilterControl({ filters, setFilters, status }) {
                         </button>
                     </div>
 
-                    {/* At Mode Input */}
                     {simulationMode === 'at' && (
                         <div style={inputGroupStyle}>
                             <label style={inputLabelStyle}>Select Time:</label>
@@ -162,7 +151,6 @@ export default function TimeFilterControl({ filters, setFilters, status }) {
                         </div>
                     )}
 
-                    {/* Range Mode Inputs */}
                     {simulationMode === 'range' && (
                         <>
                             <div style={inputGroupStyle}>
@@ -188,7 +176,6 @@ export default function TimeFilterControl({ filters, setFilters, status }) {
                 </>
             )}
 
-            {/* Status */}
             <div style={{ fontSize: '11px', textAlign: 'center', opacity: 0.6, marginTop: '4px' }}>
                 {status}
             </div>
