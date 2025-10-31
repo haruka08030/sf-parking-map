@@ -27,16 +27,13 @@ function useDebouncedCallback(cb, delay = 300) {
 // Regulation Classification and Styling
 function classifyRegulation(props) {
     const text = (props?.regulation || "").toLowerCase();
-    const hasRpp =
-        !!(props?.rpparea1 || props?.rpparea2 || props?.rpparea3 || props?.rpp_sym || props?.sym_rpp2);
     const hasTimeLimit = !!(props?.hrlimit || props?.hours);
 
     // Category 1: Cannot Park (Red)
     if (/no\s*parking|tow-?away/.test(text)) return "CannotPark";
     if (/commercial|truck|taxi|permit\s*only|loading/.test(text)) return "CannotPark";
-    if (hasRpp) return "CannotPark";
 
-    // Category 2: Time Limited (Yellow)
+    // Category 2: Time Limited (Yellow) - Check time limit first, regardless of RPP
     if (hasTimeLimit || /time\s*limit|\b\d+\s*(min|hour|hr|h)\b/.test(text)) return "TimeLimit";
 
     // Category 3: No Regulation (Blue) - if no restrictions detected
@@ -245,15 +242,6 @@ export default function SfParkingMap() {
                 // Range mode: check intersection and calculate coverage
                 isActive = intersectsRange(props, new Date(filters.rangeStart), new Date(filters.rangeEnd));
                 coverage = calculateCoverage(props, new Date(filters.rangeStart), new Date(filters.rangeEnd));
-            }
-
-            // Handle RPP permit assumption
-            const cls = classifyRegulation(props);
-            if (filters.respectRPP && cls === 'RPP') {
-                const exceptions = (props.exceptions || '').toLowerCase();
-                if (exceptions.includes('rpp exempt')) {
-                    isActive = false; // User can park here
-                }
             }
 
             return { ...f, properties: { ...props, _isActive: isActive, _coverage: coverage } };
