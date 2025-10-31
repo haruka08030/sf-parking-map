@@ -165,6 +165,51 @@ function ViewportListener({ onMove }) {
     return null;
 }
 
+// Location Button Component
+function LocationButton({ onClick }) {
+    const [isHovered, setIsHovered] = React.useState(false);
+
+    return (
+        <button
+            onClick={onClick}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+            style={{
+                position: 'absolute',
+                bottom: '70px',
+                right: '12px',
+                zIndex: 1000,
+                width: '50px',
+                height: '50px',
+                background: isHovered ? '#2196F3' : 'rgba(255,255,255,0.95)',
+                border: 'none',
+                borderRadius: '10px',
+                boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                transition: 'all 0.2s',
+            }}
+            title="Go to current location"
+        >
+            <svg
+                width="26"
+                height="26"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke={isHovered ? 'white' : '#333'}
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            >
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path>
+                <circle cx="12" cy="10" r="3"></circle>
+            </svg>
+        </button>
+    );
+}
+
 // Socrata API Fetcher
 async function fetchGeojson({ bounds, limit = 5000, token }) {
     const base = `https://data.sfgov.org/resource/${DATASET_ID}.geojson`;
@@ -198,7 +243,7 @@ export default function SfParkingMap() {
     const [geojson, setGeojson] = useState(null);
     const [status, setStatus] = useState("Idle");
     const [filters, setFilters] = useState({
-        simulationEnabled: false,
+        simulationEnabled: true, // Changed: Start with simulation enabled (At mode by default)
         simulationMode: 'at', // 'at' or 'range'
         atTime: toLocalISOString(new Date()),
         rangeStart: toLocalISOString(new Date()),
@@ -208,6 +253,7 @@ export default function SfParkingMap() {
         token: "",
         limit: 2000,
     });
+    const mapRef = useRef(null);
 
     const debouncedLoad = useDebouncedCallback(async ({ bounds }) => {
         try {
@@ -220,6 +266,27 @@ export default function SfParkingMap() {
             setStatus("Error loading data");
         }
     }, 300);
+
+    const handleGoToLocation = () => {
+        if (navigator.geolocation) {
+            setStatus("Getting location...");
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const { latitude, longitude } = position.coords;
+                    if (mapRef.current) {
+                        mapRef.current.setView([latitude, longitude], 15);
+                        setStatus("Location found");
+                    }
+                },
+                (error) => {
+                    console.error("Error getting location:", error);
+                    setStatus("Location access denied");
+                }
+            );
+        } else {
+            setStatus("Geolocation not supported");
+        }
+    };
 
     const processedGeojson = useMemo(() => {
         if (!geojson) return null;
@@ -256,7 +323,7 @@ export default function SfParkingMap() {
 
     return (
         <div style={{ width: "100vw", height: "100vh", position: "relative" }}>
-            <MapContainer center={[37.7749, -122.4194]} zoom={15} className="map" style={{ height: "100%", width: "100%" }}>
+            <MapContainer ref={mapRef} center={[37.7749, -122.4194]} zoom={15} className="map" style={{ height: "100%", width: "100%" }}>
                 <TileLayer
                     url={`https://api.mapbox.com/styles/v1/mapbox/light-v11/tiles/{z}/{x}/{y}?access_token=${MAPBOX_TOKEN}`}
                     attribution='© <a href="https://www.mapbox.com/about/maps/">Mapbox</a> © <a href="http://www.openstreetmap.org/copyright">OpenStreetMap</a>'
@@ -308,6 +375,8 @@ export default function SfParkingMap() {
                 isRangeMode={filters.simulationEnabled && filters.simulationMode === 'range'}
                 isAtMode={filters.simulationEnabled && filters.simulationMode === 'at'}
             />
+
+            <LocationButton onClick={handleGoToLocation} />
         </div>
     );
 }

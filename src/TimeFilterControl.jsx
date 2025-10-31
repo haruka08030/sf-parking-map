@@ -99,7 +99,7 @@ export default function TimeFilterControl({ filters, setFilters, status }) {
         <div style={controlBoxStyle}>
             {/* Simulation Toggle */}
             <div style={toggleContainerStyle}>
-                <span style={toggleLabelStyle}>Simulation</span>
+                <span style={toggleLabelStyle}>Show Rules</span>
                 <label style={toggleSwitchStyle}>
                     <input
                         type="checkbox"
@@ -110,7 +110,7 @@ export default function TimeFilterControl({ filters, setFilters, status }) {
                     <div style={{
                         width: '100%',
                         height: '100%',
-                        background: simulationEnabled ? '#2196F3' : '#ccc',
+                        background: !simulationEnabled ? '#2196F3' : '#ccc',
                         borderRadius: '12px',
                         position: 'relative',
                         transition: 'background 0.3s',
@@ -122,7 +122,7 @@ export default function TimeFilterControl({ filters, setFilters, status }) {
                             borderRadius: '50%',
                             position: 'absolute',
                             top: '2px',
-                            left: simulationEnabled ? '26px' : '2px',
+                            left: !simulationEnabled ? '26px' : '2px',
                             transition: 'left 0.3s',
                             boxShadow: '0 2px 4px rgba(0,0,0,0.2)',
                         }} />
@@ -130,7 +130,7 @@ export default function TimeFilterControl({ filters, setFilters, status }) {
                 </label>
             </div>
 
-            {/* Simulation Controls - Only show when enabled */}
+            {/* Time Selection Controls - Only show when simulationEnabled is true */}
             {simulationEnabled && (
                 <>
                     {/* Mode Selector */}
