@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { MapContainer, TileLayer, GeoJSON, useMapEvents } from "react-leaflet";
+import { MapContainer, TileLayer, GeoJSON, useMapEvents, useMap } from "react-leaflet";
 import TimeFilterControl from './TimeFilterControl';
 import { isActiveAt, intersectsRange, calculateCoverage } from './time-parser';
 import "leaflet/dist/leaflet.css";
@@ -68,9 +68,18 @@ function styleForFeature(feature, showInactiveDim, isRangeMode, isAtMode) {
 
     // In At mode, use simple parking availability coloring
     if (isAtMode) {
-        const canPark = props._isActive;
-        const color = canPark ? "#2196F3" : "#d73027"; // Blue = can park, Red = cannot park
-        return { color, weight: 3, opacity: 1.0 };
+        // If regulation is not active, you can always park
+        if (!props._isActive) {
+            return { color: "#2196F3", weight: 3, opacity: 1.0 }; // Blue - can park
+        }
+
+        // If regulation is active, check if it's a "Cannot Park" type
+        if (cls === "CannotPark") {
+            return { color: "#d73027", weight: 3, opacity: 1.0 }; // Red - cannot park
+        }
+
+        // If it's TimeLimit or other types, you can still park (with restrictions)
+        return { color: "#2196F3", weight: 3, opacity: 1.0 }; // Blue - can park with time limit
     }
 
     // Now mode: simplified classification-based styling

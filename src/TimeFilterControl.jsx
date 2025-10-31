@@ -189,7 +189,7 @@ export default function TimeFilterControl({ filters, setFilters, status }) {
             )}
 
             {/* Status */}
-            <div style={{fontSize: '11px', textAlign: 'center', opacity: 0.6, marginTop: '4px'}}>
+            <div style={{ fontSize: '11px', textAlign: 'center', opacity: 0.6, marginTop: '4px' }}>
                 {status}
             </div>
         </div>
