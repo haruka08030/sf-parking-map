@@ -188,33 +188,6 @@ export default function TimeFilterControl({ filters, setFilters, status }) {
                 </>
             )}
 
-            {/* Additional Options */}
-            <hr style={{border: 'none', borderTop: '1px solid #e0e0e0', margin: '4px 0'}}/>
-
-            <div style={checkboxGroupStyle}>
-                <input
-                    type="checkbox"
-                    id="respectRPP"
-                    checked={respectRPP}
-                    onChange={(e) => handleFilterChange('respectRPP', e.target.checked)}
-                />
-                <label htmlFor="respectRPP" style={{fontSize: '13px', color: '#333'}}>
-                    Assume RPP Permit
-                </label>
-            </div>
-
-            <div style={checkboxGroupStyle}>
-                <input
-                    type="checkbox"
-                    id="showInactiveDim"
-                    checked={showInactiveDim}
-                    onChange={(e) => handleFilterChange('showInactiveDim', e.target.checked)}
-                />
-                <label htmlFor="showInactiveDim" style={{fontSize: '13px', color: '#333'}}>
-                    Show Inactive (Dimmed)
-                </label>
-            </div>
-
             {/* Status */}
             <div style={{fontSize: '11px', textAlign: 'center', opacity: 0.6, marginTop: '4px'}}>
                 {status}
