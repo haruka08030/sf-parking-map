@@ -31,14 +31,22 @@ function classifyRegulation(props) {
         !!(props?.rpparea1 || props?.rpparea2 || props?.rpparea3 || props?.rpp_sym || props?.sym_rpp2);
     const hasTimeLimit = !!(props?.hrlimit || props?.hours);
 
-    if (/no\s*parking|tow-?away/.test(text)) return "NoParking";
-    if (/commercial|truck|taxi|permit\s*only|loading/.test(text)) return "PermitOnly";
-    if (hasRpp) return "RPP";
+    // Category 1: Cannot Park (Red)
+    if (/no\s*parking|tow-?away/.test(text)) return "CannotPark";
+    if (/commercial|truck|taxi|permit\s*only|loading/.test(text)) return "CannotPark";
+    if (hasRpp) return "CannotPark";
+
+    // Category 2: Time Limited (Yellow)
     if (hasTimeLimit || /time\s*limit|\b\d+\s*(min|hour|hr|h)\b/.test(text)) return "TimeLimit";
+
+    // Category 3: No Regulation (Blue) - if no restrictions detected
+    if (!text || text.trim() === "") return "NoRegulation";
+
+    // Category 4: Unknown (Grey)
     return "Unknown";
 }
 
-function styleForFeature(feature, showInactiveDim, isRangeMode) {
+function styleForFeature(feature, showInactiveDim, isRangeMode, isAtMode) {
     const props = feature.properties;
     const cls = classifyRegulation(props);
 
@@ -54,21 +62,27 @@ function styleForFeature(feature, showInactiveDim, isRangeMode) {
             // Partial coverage: Yellow (can only park for part of the time)
             color = "#FFC107";
         } else {
-            // No coverage: Gray (can't park here at all)
-            color = "#9E9E9E";
+            // No coverage: Red (cannot park at all)
+            color = "#d73027";
         }
 
         return { color, weight: 3, opacity: 1.0 };
     }
 
-    // Original classification-based styling for non-range modes
+    // In At mode, use simple parking availability coloring
+    if (isAtMode) {
+        const canPark = props._isActive;
+        const color = canPark ? "#2196F3" : "#d73027"; // Blue = can park, Red = cannot park
+        return { color, weight: 3, opacity: 1.0 };
+    }
+
+    // Now mode: simplified classification-based styling
     const baseStyle = (() => {
         switch (cls) {
-            case "NoParking": return { color: "#d73027", weight: 4 }; // Red
-            case "TimeLimit": return { color: "#fc8d59", weight: 3 }; // Orange
-            case "RPP": return { color: "#4575b4", weight: 3 };       // Blue
-            case "PermitOnly": return { color: "#7b3294", weight: 3 };// Purple
-            default: return { color: "#999999", weight: 2 };          // Grey
+            case "CannotPark": return { color: "#d73027", weight: 4 }; // Red - Cannot park
+            case "TimeLimit": return { color: "#FFC107", weight: 3 };  // Yellow - Time limited
+            case "NoRegulation": return { color: "#2196F3", weight: 3 }; // Blue - No regulation
+            default: return { color: "#999999", weight: 2 };           // Grey - Unknown
         }
     })();
 
@@ -79,48 +93,69 @@ function styleForFeature(feature, showInactiveDim, isRangeMode) {
 }
 
 // Legend Component
-function Legend({ isRangeMode }) {
+function Legend({ isRangeMode, isAtMode }) {
     const rangeItems = [
-        ["#2196F3", "Can park entire time"],
-        ["#FFC107", "Can park part of time"],
-        ["#9E9E9E", "Cannot park"],
+        ["#2196F3", "100% free to park"],
+        ["#FFC107", "Partially available"],
+        ["#d73027", "No parking allowed"],
+    ];
+    const atItems = [
+        ["#2196F3", "Can park now"],
+        ["#d73027", "Cannot park now"],
     ];
     const classificationItems = [
-        ["#d32f2f", "No Parking / Tow-away"],
-        ["#fb8c00", "Time Limit"],
-        ["#1e88e5", "RPP"],
-        ["#8e24aa", "Permit Only"],
-        ["#9e9e9e", "Unknown/Other"],
+        ["#2196F3", "No regulation"],
+        ["#FFC107", "Time limited parking"],
+        ["#d73027", "Cannot park"],
+        ["#999999", "Unknown/Other"],
     ];
 
     return (
         <div style={{
             position: "absolute", left: 12, bottom: 12,
-            background: "rgba(255,255,255,0.9)", borderRadius: 12,
-            padding: 10, fontSize: 12, boxShadow: "0 2px 5px rgba(0,0,0,0.2)"
+            zIndex: 1000,
+            background: "rgba(255,255,255,0.95)", borderRadius: 12,
+            padding: 12, fontSize: 12, boxShadow: "0 4px 12px rgba(0,0,0,0.15)"
         }}>
             {isRangeMode && (
                 <>
-                    <b>Range Mode Legend</b>
-                    <ul style={{ listStyle: "none", padding: 0, margin: "6px 0 12px 0" }}>
+                    <b style={{ fontSize: 13, color: '#333' }}>Parking Availability</b>
+                    <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 12px 0" }}>
                         {rangeItems.map(([color, label]) => (
-                            <li key={label} style={{ display: "flex", alignItems: "center", marginBottom: 3 }}>
-                                <span style={{ width: 14, height: 6, background: color, marginRight: 6 }}></span>
-                                {label}
+                            <li key={label} style={{ display: "flex", alignItems: "center", marginBottom: 4 }}>
+                                <span style={{ width: 16, height: 4, background: color, marginRight: 8, borderRadius: 2 }}></span>
+                                <span style={{ fontSize: 12, color: '#555' }}>{label}</span>
                             </li>
                         ))}
                     </ul>
                 </>
             )}
-            <b>Regulation Types</b>
-            <ul style={{ listStyle: "none", padding: 0, margin: "6px 0 0 0" }}>
-                {classificationItems.map(([color, label]) => (
-                    <li key={label} style={{ display: "flex", alignItems: "center", marginBottom: 3 }}>
-                        <span style={{ width: 14, height: 6, background: color, marginRight: 6 }}></span>
-                        {label}
-                    </li>
-                ))}
-            </ul>
+            {isAtMode && (
+                <>
+                    <b style={{ fontSize: 13, color: '#333' }}>Parking Status</b>
+                    <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 12px 0" }}>
+                        {atItems.map(([color, label]) => (
+                            <li key={label} style={{ display: "flex", alignItems: "center", marginBottom: 4 }}>
+                                <span style={{ width: 16, height: 4, background: color, marginRight: 8, borderRadius: 2 }}></span>
+                                <span style={{ fontSize: 12, color: '#555' }}>{label}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </>
+            )}
+            {!isRangeMode && !isAtMode && (
+                <>
+                    <b style={{ fontSize: 13, color: '#333' }}>Regulation Types</b>
+                    <ul style={{ listStyle: "none", padding: 0, margin: "8px 0 0 0" }}>
+                        {classificationItems.map(([color, label]) => (
+                            <li key={label} style={{ display: "flex", alignItems: "center", marginBottom: 4 }}>
+                                <span style={{ width: 16, height: 4, background: color, marginRight: 8, borderRadius: 2 }}></span>
+                                <span style={{ fontSize: 12, color: '#555' }}>{label}</span>
+                            </li>
+                        ))}
+                    </ul>
+                </>
+            )}
         </div>
     );
 }
@@ -166,7 +201,8 @@ export default function SfParkingMap() {
     const [geojson, setGeojson] = useState(null);
     const [status, setStatus] = useState("Idle");
     const [filters, setFilters] = useState({
-        mode: 'now',
+        simulationEnabled: false,
+        simulationMode: 'at', // 'at' or 'range'
         atTime: toLocalISOString(new Date()),
         rangeStart: toLocalISOString(new Date()),
         rangeEnd: toLocalISOString(new Date(Date.now() + 3600 * 1000)),
@@ -196,13 +232,18 @@ export default function SfParkingMap() {
             let coverage;
             const props = f.properties;
 
-            if (filters.mode === 'now') {
-                isActive = true; // In 'Now' mode, show everything as active
-            } else if (filters.mode === 'at') {
+            // Determine current mode
+            const currentMode = filters.simulationEnabled ? filters.simulationMode : 'now';
+
+            if (currentMode === 'now') {
+                // Now mode: show everything as active (no time filtering)
+                isActive = true;
+            } else if (currentMode === 'at') {
+                // At mode: check if regulation is active at specific time
                 isActive = isActiveAt(props, new Date(filters.atTime));
-            } else { // 'range'
+            } else if (currentMode === 'range') {
+                // Range mode: check intersection and calculate coverage
                 isActive = intersectsRange(props, new Date(filters.rangeStart), new Date(filters.rangeEnd));
-                // Calculate coverage for range mode
                 coverage = calculateCoverage(props, new Date(filters.rangeStart), new Date(filters.rangeEnd));
             }
 
@@ -240,7 +281,15 @@ export default function SfParkingMap() {
                     <GeoJSON
                         key={JSON.stringify(filters)} // Re-render when filters change
                         data={processedGeojson}
-                        style={(f) => styleForFeature(f, filters.showInactiveDim, filters.mode === 'range')}
+                        style={(f) => {
+                            const currentMode = filters.simulationEnabled ? filters.simulationMode : 'now';
+                            return styleForFeature(
+                                f,
+                                filters.showInactiveDim,
+                                currentMode === 'range',
+                                currentMode === 'at'
+                            );
+                        }}
                         onEachFeature={(f, layer) => {
                             const p = f.properties || {};
                             const statusText = p._isActive ? 'ACTIVE' : 'INACTIVE';
@@ -267,7 +316,10 @@ export default function SfParkingMap() {
 
             <TimeFilterControl filters={filters} setFilters={setFilters} status={status} />
 
-            <Legend isRangeMode={filters.mode === 'range'} />
+            <Legend
+                isRangeMode={filters.simulationEnabled && filters.simulationMode === 'range'}
+                isAtMode={filters.simulationEnabled && filters.simulationMode === 'at'}
+            />
         </div>
     );
 }
